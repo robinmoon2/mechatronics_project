@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArUco Robot Camera</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #1a1a2e;
+            color: #eee;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 20px;
+        }
+        .video-box {
+            background: #0f0f23;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #333;
+        }
+        .video-box img {
+            width: 100%;
+            display: block;
+        }
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .panel {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid #333;
+        }
+        .panel h2 {
+            color: #00d4ff;
+            font-size: 1em;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+        select, input, button {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            background: #0f0f23;
+            color: #eee;
+            font-size: 0.9em;
+            margin-bottom: 8px;
+        }
+        button {
+            background: #00d4ff;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover { background: #00b8d9; }
+
+        .marker-card {
+            background: #0f0f23;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-left: 4px solid #00d4ff;
+        }
+        .marker-card.left { border-left-color: #ffa500; }
+        .marker-card.right { border-left-color: #ff6b35; }
+        .marker-card.straight { border-left-color: #00ff88; }
+
+        .marker-id {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #00d4ff;
+        }
+        .marker-angle {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin: 4px 0;
+        }
+        .marker-angle.left { color: #ffa500; }
+        .marker-angle.right { color: #ff6b35; }
+        .marker-angle.straight { color: #00ff88; }
+
+        .marker-detail {
+            font-size: 0.8em;
+            color: #888;
+        }
+        .no-markers {
+            color: #666;
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: #00ff88;
+            margin-right: 6px;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .hfov-display {
+            text-align: center;
+            font-size: 1.2em;
+            color: #00d4ff;
+            margin: 5px 0;
+        }
+
+        @media (max-width: 800px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1> Aruco Robot Camera</h1>
+
+    <div class="container">
+        <div class="video-box">
+            <img id="stream" src="/video_feed" alt="Camera Stream">
+        </div>
+
+        <div class="sidebar">
+            <!-- Controls -->
+            <div class="panel">
+                <h2>⚙️ Settings</h2>
+
+                <label>Dictionary</label>
+                <select id="dictSelect">
+                    {% for d in dicts %}
+                    <option value="{{ d }}" {% if d == "4X4_250" %}selected{% endif %}>{{ d }}</option>
+                    {% endfor %}
+                </select>
+
+                <label>Camera HFOV (°)</label>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button onclick="adjustFov(-5)" style="width:40px">-</button>
+                    <div class="hfov-display" id="hfovDisplay">60</div>
+                    <button onclick="adjustFov(5)" style="width:40px">+</button>
+                </div>
+                <input type="range" id="hfovSlider" min="10" max="180" value="60"
+                       oninput="setFov(this.value)">
+            </div>
+
+            <!-- Status -->
+            <div class="panel">
+                <h2><span class="status-dot"></span> Live Markers</h2>
+                <div id="markerList">
+                    <div class="no-markers">No markers detected</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dictSelect = document.getElementById('dictSelect');
+        const hfovSlider = document.getElementById('hfovSlider');
+        const hfovDisplay = document.getElementById('hfovDisplay');
+        const markerList = document.getElementById('markerList');
+
+        // Change dictionary
+        dictSelect.addEventListener('change', async () => {
+            await fetch('/set_dict', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({dict: dictSelect.value})
+            });
+        });
+
+        // HFOV controls
+        async function setFov(val) {
+            val = Math.max(10, Math.min(180, parseInt(val)));
+            hfovSlider.value = val;
+            hfovDisplay.textContent = val;
+            await fetch('/set_hfov', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({hfov: val})
+            });
+        }
+
+        function adjustFov(delta) {
+            setFov(parseInt(hfovSlider.value) + delta);
+        }
+
+        // Poll marker data
+        async function updateMarkers() {
+            try {
+                const res = await fetch('/markers');
+                const markers = await res.json();
+
+                if (markers.length === 0) {
+                    markerList.innerHTML = '<div class="no-markers">No markers detected</div>';
+                    return;
+                }
+
+                markerList.innerHTML = markers.map(m => {
+                    const cls = m.direction.toLowerCase();
+                    const arrow = m.direction === 'LEFT' ? '⬅️' :
+                                  m.direction === 'RIGHT' ? '➡️' : '⬆️';
+                    return `
+                        <div class="marker-card ${cls}">
+                            <span class="marker-id">ID ${m.id}</span>
+                            <div class="marker-angle ${cls}">
+                                ${arrow} ${m.angle_deg > 0 ? '+' : ''}${m.angle_deg}°
+                            </div>
+                            <div class="marker-detail">
+                                Direction: ${m.direction} | Size: ${m.size_px}px
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {}
+        }
+
+        // Update markers every 200ms
+        setInterval(updateMarkers, 200);
+        updateMarkers();
+    </script>
+</body>
+</html>
