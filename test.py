@@ -9,14 +9,16 @@ from gpiozero import InputDevice
 from board import SCL, SDA
 import busio
 from adafruit_pca9685 import PCA9685
-from adafruit_motor import motor
+from gpiozero import DistanceSensor
+from adafruit_motor import motor , servo
 
 line_pin_left = 22
 line_pin_middle = 27
 line_pin_right = 17
 
-
-
+Tr = 23
+Ec = 24
+sensor = DistanceSensor(echo=Ec, trigger=Tr,max_distance=2) # Maximum detection distance 2m.
 
 MOTOR_M1_IN1 =  15      #Define the positive pole of M1
 MOTOR_M1_IN2 =  14      #Define the negative pole of M1
@@ -44,25 +46,59 @@ left = InputDevice(pin=line_pin_left)
 middle = InputDevice(pin=line_pin_middle)
 right = InputDevice(pin=line_pin_right)
 
+def grabobject():
+  while checkdist() <= 5:
+    Motor(1, 1, 0)
+    Motor(2, 1, 0)
+
+    set_angle(1, 0)
+    set_angle(2, 180)
+    set_angle(3, 180)
+    time.sleep(1)
+
+    set_angle(1, 180)
+    time.sleep(1)
+
+    set_angle(1, 90)
+    set_angle(2, 90)
+    set_angle(3, 90)
+    print("Object grabbed! Stopping the car.")
+
+    print("Object released! Resuming the car's movement.")
 def run():
+    if checkdist() < 10:
+      print("Object detected within 5 cm! Stopping the car.")
+      grabobject()
+      Motor(1, 1, 15)
+      Motor(2, 1, 15) 
     status_right = right.value
     status_middle = middle.value
     status_left = left.value
-    print('left: %d   middle: %d   right: %d' %(status_left,status_middle,status_right))
+   # print('left: %d   middle: %d   right: %d' %(status_left,status_middle,status_right))
+    
     if (status_left == 0) :
-        Motor(2, -1, 10)
-        Motor(1, 1, 40)
+        set_angle(0, 120)
+        set_angle(1, 70)
+    elif(status_left == 0 and status_middle == 0):
+        set_angle(0, 140)
+        set_angle(1, 50)
     elif(status_middle == 1)and (status_left == 1) and (status_right == 1):
         Motor(1, 1, 15)
         Motor(2, 1, 15)
+        set_angle(0, 90)
+        set_angle(1, 90)
     elif (status_right == 0):
-        Motor(1, -1, 10)
-        Motor(2, 1, 40)
+        set_angle(0, 60)
+        set_angle(1, 110)
+    elif(status_right==0 and status_middle==0):
+        set_angle(0,40)
+        set_angle(1,130)
     elif (status_middle == 0) and (status_left == 0) and (status_right == 0):
         Motor(1, 1, 0)
         Motor(2, 1, 0)
 
-
+def checkdist():
+    return (sensor.distance) *100
 
 def map(x,in_min,in_max,out_min,out_max):
   return (x - in_min)/(in_max - in_min) *(out_max - out_min) +out_min
@@ -95,14 +131,22 @@ def destroy():
   motorStop()
   pwm_motor.deinit()
 
+def set_angle(ID, angle):
+    servo_angle = servo.Servo(pwm_motor.channels[ID], min_pulse=500, max_pulse=2400, actuation_range=180)
+    servo_angle.angle = angle
+
 
 if __name__ == '__main__':
     try:
-        Motor(1, 1, 20)
-        Motor(2, 1, 20)
+        Motor(1, 1, 10)
+        Motor(2, 1, 10)
+        set_angle(1, 90)
+        set_angle(2, 90)
+        set_angle(3, 90)
         while 1:
             run()
+            #set_angle(4, 180)
+
     except KeyboardInterrupt:
         destroy()
         pass
-
