@@ -93,9 +93,9 @@ def eviter_obstacle():
 
     # Étape B : On dépasse l'obstacle
     set_angle(0, angle_retour) # On remet le capteur droit
-    time.sleep(0.3)
+    time.sleep(0.4)
     set_angle(0, 90)
-    time.sleep(0.6)
+    time.sleep(1)
 
     # Étape C : On revient vers la trajectoire (-30°)
     set_angle(0, angle_retour)

@@ -11,7 +11,6 @@ app = Flask(__name__)
 # ====== CONFIG ======
 CAMERA_HFOV = 60.0
 DICT_NAME = "4X4_250"
-# ====================
 
 ARUCO_DICTS = {
     "4X4_50": cv2.aruco.DICT_4X4_50,
@@ -233,8 +232,8 @@ def set_hfov():
     return jsonify({"ok": False}), 400
 
 
-if __name__ == '__main__':
-    # Start camera in background thread
+
+def main():
     t = threading.Thread(target=camera_loop, daemon=True)
     t.start()
 
@@ -244,3 +243,7 @@ if __name__ == '__main__':
 
     # 0.0.0.0 = accessible from other machines on network
     app.run(host='0.0.0.0', port=5000, threaded=True)
+
+
+if __name__ == '__main__':
+    main()
