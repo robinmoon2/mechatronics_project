@@ -23,7 +23,7 @@ class Config:
     # Calibration
     CAMERA_MATRIX: np.ndarray = _parse_matrix("CAM_MATRIX",   (3, 3))
     DIST_COEFFS:   np.ndarray = _parse_matrix("DIST_COEFFS",  (1, 5))
-
+²
     # ArUco
     ARUCO_DICT_NAME: str = os.getenv("ARUCO_DICT", "DICT_4X4_50")
     ORIGIN_ID:       int = int(os.getenv("ORIGIN_ID", "0"))
