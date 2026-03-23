@@ -25,13 +25,12 @@ MOTOR_M4_IN1 =  8       #Define the positive pole of M4
 MOTOR_M4_IN2 =  9       #Define the negative pole of M4
 
 STEER_CENTER = 90
-SPEED_MAX = 50
-SPEED_MIN = 30        # never go below this when far
+SPEED_MAX = 80
+SPEED_MIN = 20        # never go below this when far
 SLOW_ZONE = 0.30       # meters — start slowing down within 0.5m
 STOP_DIST = 0.15      # meters — stop here
-KV = 0.5
+KV = 100
 MAX_STEER_ANGLE = 30   # max degrees left/right from center
-KH = 0.5               # proportional gain (tune this)
 def map(x,in_min,in_max,out_min,out_max):
   return (x - in_min)/(in_max - in_min) *(out_max - out_min) +out_min
 
@@ -118,102 +117,75 @@ class GPS_coordinates:
 
 
 class Navigation:
-    """
-    Proportional controller — drives to a target point.
-    Based on 'Driving to a point' (course p.42)
-
-    δ = Kh * (ψ* - ψ)   steering proportional control
-    v = Kv * dist        speed proportional control (clamped)
-    """
-
-    KH = 0.2   # steering gain — tune this
-
+    KH = 0.5
+    
     def __init__(self, robot: GPS_coordinates, target: GPS_coordinates):
-        self.robot    = robot
-        self.target   = target
+        self.robot = robot
+        self.target = target
         self.finished = False
-
-        # Initial state — stopped, wheels centered
+        self.prev_robot = GPS_coordinates(x=robot.x, y=robot.y)
+        self.robot_heading = 0.0  # radians, estimated from motion
+        
         motorStop()
         set_angle(0, STEER_CENTER)
 
-    # ── Pose ───────────────────────────────────────────────────
-
     def distance(self) -> float:
-        """Euclidean distance to target (XY plane only)"""
         dx = self.target.x - self.robot.x
         dy = self.target.y - self.robot.y
         return math.sqrt(dx**2 + dy**2)
 
     def desired_heading(self) -> float:
-        """
-        ψ* = atan2(dy, dx)  — desired heading in radians [-π, π]
-        Course p.42
-        """
         dx = self.target.x - self.robot.x
         dy = self.target.y - self.robot.y
-        return math.atan2(dy, dx)   # radians
+        return math.atan2(dy, dx)
+
+    def update_heading(self):
+        """Estimate robot heading from movement between frames."""
+        dx = self.robot.x - self.prev_robot.x
+        dy = self.robot.y - self.prev_robot.y
+        if math.sqrt(dx**2 + dy**2) > 0.01:  # moved enough
+            self.robot_heading = math.atan2(dy, dx)
+        self.prev_robot.x = self.robot.x
+        self.prev_robot.y = self.robot.y
 
     @staticmethod
     def normalize_angle(angle_rad: float) -> float:
-        """
-        Clamp angle to [-π, π]
-        Uses atan2 trick — always valid
-        """
         return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
 
-    # ── Control law ────────────────────────────────────────────
-
-    def compute_steering(self, robot_heading_rad: float = 0.0) -> float:
+    def compute_steering(self) -> float:
         psi_star = self.desired_heading()
-        error    = self.normalize_angle(psi_star - robot_heading_rad + STEER_CENTER)
+        error = self.normalize_angle(psi_star - self.robot_heading)
         delta_deg = self.KH * math.degrees(error)
 
-        # Find correct sign empirically:
-        steer_value = STEER_CENTER - delta_deg  # try + first, swap to - if reversed
+        steer_value = STEER_CENTER + delta_deg  # + or - : flip if robot turns wrong way
 
-        print(f"dx:{self.target.x-self.robot.x:.2f} dy:{self.target.y-self.robot.y:.2f} "
-            f"ψ*:{math.degrees(psi_star):.1f}° err:{math.degrees(error):.1f}° "
-            f"steer:{steer_value:.1f}°")
+        steer_value = max(STEER_CENTER - MAX_STEER_ANGLE,
+                          min(STEER_CENTER + MAX_STEER_ANGLE, steer_value))
 
-        return max(60, min(120, steer_value))
-    
-    def compute_speed(self, dist: float) -> float:
-        """
-        v = Kv * dist   proportional speed — clamped between SPEED_MIN and SPEED_MAX
-        Course p.42
-        """
-        speed = KV * self.distance()
-        return max(SPEED_MIN, min(SPEED_MAX, speed))
+        print(f"heading:{math.degrees(self.robot_heading):.1f}° "
+              f"desired:{math.degrees(psi_star):.1f}° "
+              f"err:{math.degrees(error):.1f}° steer:{steer_value:.1f}°")
+        return steer_value
 
-    # ── Main loop ──────────────────────────────────────────────
+    def compute_speed(self) -> float:
+        return KV*self.distance()
 
-    def activate_motors():
-        """
-        steer_value    : servo angle (60-120°, center=90)
-        distance       : meters to target
-        base_speed     : motor speed 0-100
-        stop_threshold : meters, stop when closer than this
-        """
-        distance = self.distance()
-        
-        base_speed = self.compute_speed()
-        steer_value = self.compute_steering()
-        
-        if distance < STOP_DIST:
+    def activate_motors(self) -> float:
+        self.update_heading()
+        dist = self.distance()
+
+        if dist < STOP_DIST:
             motorStop()
             set_angle(0, STEER_CENTER)
+            self.finished = True
             print("DESTINATION REACHED")
-            return True  # finished
+            return 0.0
 
-        # Apply steering
-        set_angle(0, steer_value)
+        steer = self.compute_steering()
+        speed = self.compute_speed()
 
-        # Drive forward (motors 1 & 2)
-        Motor(1, 1, base_speed)
-        Motor(2, 1, base_speed)
-        Motor(3, 1, 0)
-        Motor(4, 1, 0)
+        set_angle(0, steer)
+        Motor(1, 1, speed)
+        Motor(2, 1, speed)
 
-        return False  # not finished
-
+        return speed

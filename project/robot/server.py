@@ -46,6 +46,7 @@ def render_dashboard(
     fps:        float,
     distance:   float,
     speed:      float,
+    angle:      float
 ):
     clear()
     print("╔══════════════════════════════════════════════════════╗")
@@ -69,6 +70,7 @@ def render_dashboard(
     print("╚════════╩══════════════╩══════════════╩══════════════╝")
     print(f" DISTANCE : {distance:.4f} m" if distance is not None else " DISTANCE : N/A")
     print(f" SPEED    : {speed:.4f}"      if speed    is not None else " SPEED    : N/A")
+    print(f" ANGLE     : {angle:.4f}"     if angle is not None else "ANGLE : N/A")
     print("  Press Ctrl+C to stop.")
 
 def run():
@@ -85,6 +87,7 @@ def run():
     distance   = None
     speed      = None
     nav        = None
+    angle      = None
 
     # FPS tracking
     fps_window: list = []
@@ -150,14 +153,15 @@ def run():
                     nav.target.z = target_s.z
 
                 distance = nav.distance()
-                speed    = nav.activate_motors()
-
+                speed    = nav.compute_speed()
+                angle = nav.compute_steering()
             else:
                 distance = None
                 speed    = None
-
+                angle    = None
+            
             # ── Render ────────────────────────────────────────────
-            render_dashboard(states, client_ip, frame_id, pkt_count, fps, distance, speed)
+            render_dashboard(states, client_ip, frame_id, pkt_count, fps, distance, speed, angle)
 
     except KeyboardInterrupt:
         log.info("Server stopped.")
