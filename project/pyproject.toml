@@ -11,4 +11,5 @@ dependencies = [
     "matplotlib>=3.10.8",
     "numpy>=2.4.3",
     "opencv-contrib-python>=4.13.0.92",
+    "smbus>=1.1.post2",
 ]
