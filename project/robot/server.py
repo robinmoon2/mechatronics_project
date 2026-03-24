@@ -89,7 +89,6 @@ def run():
     nav        = None
     angle      = None
 
-    # FPS tracking
     fps_window: list = []
     fps = 0.0
 
@@ -98,10 +97,13 @@ def run():
             try:
                 data, addr = sock.recvfrom(BUFFER_SIZE)
             except socket.timeout:
-                render_dashboard(states, client_ip, frame_id, pkt_count, fps, distance, speed)
+                # No packet for 1s — safety stop
+                motorStop()
+                render_dashboard(states, client_ip, frame_id,
+                                 pkt_count, fps, distance, speed, angle)
                 continue
 
-            # ── Parse ─────────────────────────────────────────────
+            # ── Parse ─────────────────────────────────────────
             try:
                 msg = json.loads(data.decode("utf-8"))
             except json.JSONDecodeError:
@@ -112,7 +114,7 @@ def run():
             frame_id  = msg.get("frame", 0)
             markers   = msg.get("markers", {})
 
-            # ── Update states ─────────────────────────────────────
+            # ── Update states ─────────────────────────────────
             now = time.time()
             for mid, pos in markers.items():
                 if mid not in states:
@@ -122,14 +124,13 @@ def run():
                 s.last_seen    = now
                 s.update_count += 1
 
-            # ── FPS ───────────────────────────────────────────────
+            # ── FPS ───────────────────────────────────────────
             fps_window.append(now)
             fps_window = [t for t in fps_window if now - t <= 1.0]
             fps = float(len(fps_window))
-
             pkt_count += 1
 
-            # ── Navigation ────────────────────────────────────────
+            # ── Navigation ────────────────────────────────────
             robot_id_str  = str(ROBOT_ID)
             target_id_str = str(TARGET_ID)
 
@@ -138,36 +139,41 @@ def run():
                 target_s = states[target_id_str]
 
                 if nav is None:
-                    # First time — create the Navigation object
                     nav = Navigation(
-                        robot=GPS_coordinates(x=robot_s.x, y=robot_s.y, z=robot_s.z),
-                        target=GPS_coordinates(x=target_s.x, y=target_s.y, z=target_s.z)
+                        robot=GPS_coordinates(
+                            x=robot_s.x, y=robot_s.y, z=robot_s.z),
+                        target=GPS_coordinates(
+                            x=target_s.x, y=target_s.y, z=target_s.z)
                     )
                 else:
-                    # Update coordinates in place every packet
-                    nav.robot.x  = robot_s.x
-                    nav.robot.y  = robot_s.y
-                    nav.robot.z  = robot_s.z
-                    nav.target.x = target_s.x
-                    nav.target.y = target_s.y
-                    nav.target.z = target_s.z
+                    nav.robot.x,  nav.robot.y,  nav.robot.z  = (
+                        robot_s.x,  robot_s.y,  robot_s.z)
+                    nav.target.x, nav.target.y, nav.target.z = (
+                        target_s.x, target_s.y, target_s.z)
 
                 distance = nav.distance()
-                speed    = nav.compute_speed()
-                angle = nav.compute_steering()
+                angle    = nav.compute_steering()
+
+                if not nav.finished:
+                    speed = nav.activate_motors()
+                else:
+                    speed = 0.0
+                    motorStop()
             else:
                 distance = None
                 speed    = None
                 angle    = None
-            
-            # ── Render ────────────────────────────────────────────
-            render_dashboard(states, client_ip, frame_id, pkt_count, fps, distance, speed, angle)
+                motorStop()
+
+            # ── Render ────────────────────────────────────────
+            render_dashboard(states, client_ip, frame_id,
+                             pkt_count, fps, distance, speed, angle)
 
     except KeyboardInterrupt:
         log.info("Server stopped.")
     finally:
         motorStop()
-        set_angle(0,90)
+        set_angle(90)
         sock.close()
 
 if __name__ == "__main__":

@@ -13,8 +13,7 @@ import time
 from board import SCL, SDA
 import busio
 from adafruit_pca9685 import PCA9685
-from adafruit_motor import motor
-
+from adafruit_motor import motor, servo
 MOTOR_M1_IN1 =  15      #Define the positive pole of M1
 MOTOR_M1_IN2 =  14      #Define the negative pole of M1
 MOTOR_M2_IN1 =  12      #Define the positive pole of M2
@@ -25,16 +24,17 @@ MOTOR_M4_IN1 =  8       #Define the positive pole of M4
 MOTOR_M4_IN2 =  9       #Define the negative pole of M4
 
 STEER_CENTER = 90
-SPEED_MAX = 80
+SPEED_MAX = 40
 SPEED_MIN = 20        # never go below this when far
-SLOW_ZONE = 0.30       # meters — start slowing down within 0.5m
+SLOW_ZONE = 0.40       # meters — start slowing down within 0.5m
 STOP_DIST = 0.15      # meters — stop here
-KV = 100
-MAX_STEER_ANGLE = 30   # max degrees left/right from center
+KV = 1
+MAX_STEER_ANGLE = 60   # max degrees left/right from 
 def map(x,in_min,in_max,out_min,out_max):
   return (x - in_min)/(in_max - in_min) *(out_max - out_min) +out_min
 
 i2c = busio.I2C(SCL, SDA)
+
 pwm_motor = PCA9685(i2c, address=0x5f)
 pwm_motor.frequency = 50
 
@@ -78,32 +78,23 @@ def destroy():
 
 
 ## SERVO MOTEUR 
+steering_servo = servo.Servo(pwm_motor.channels[0], min_pulse=500, max_pulse=2400, actuation_range=180)
 
-import time
-from board import SCL, SDA
-import busio
-from adafruit_motor import servo
-from adafruit_pca9685 import PCA9685
-
-i2c = busio.I2C(SCL, SDA)
-# Create a simple PCA9685 class instance.
-pca = PCA9685(i2c, address=0x5f)  # default 0x40
-
-pca.frequency = 50
-
-
-def set_angle(ID, angle):
-    servo_angle = servo.Servo(pca.channels[ID], min_pulse=500, max_pulse=2400, actuation_range=180)
-    servo_angle.angle = angle
+def set_angle(angle):
+    steering_servo.angle = angle
+    
+# def set_angle(ID, angle):
+#     servo_angle = servo.Servo(pca.channels[ID], min_pulse=500, max_pulse=2400, actuation_range=180)
+#     servo_angle.angle = angle
 
 
 def test(channel):
     for i in range(180):  # The servo turns from 0 to 180 degrees.
-        set_angle(channel, i)
+        set_angle( i)
         time.sleep(0.01)
     time.sleep(0.5)
     for i in range(180):  # The servo turns from 180 to 0 degrees.
-        set_angle(channel, 180 - i)
+        set_angle( 180 - i)
         time.sleep(0.01)
     time.sleep(0.5)
 
@@ -127,7 +118,10 @@ class Navigation:
         self.robot_heading = 0.0  # radians, estimated from motion
         
         motorStop()
-        set_angle(0, STEER_CENTER)
+        set_angle(STEER_CENTER)
+        
+        
+    #--- Utility functions
 
     def distance(self) -> float:
         dx = self.target.x - self.robot.x
@@ -138,37 +132,40 @@ class Navigation:
         dx = self.target.x - self.robot.x
         dy = self.target.y - self.robot.y
         return math.atan2(dy, dx)
-
+    
+    def heading_error(self) -> float:
+        err = self.desired_heading() - self.robot_heading
+        # Normalize to [-pi, pi]
+        err = (err + math.pi) % (2 * math.pi) - math.pi
+        return err
+    
+    # -- navigation functions 
     def update_heading(self):
-        """Estimate robot heading from movement between frames."""
+        """Estimate heading from successive position updates."""
         dx = self.robot.x - self.prev_robot.x
         dy = self.robot.y - self.prev_robot.y
-        if math.sqrt(dx**2 + dy**2) > 0.01:  # moved enough
+        if math.sqrt(dx**2 + dy**2) > 0.01:  # only update if moved enough
             self.robot_heading = math.atan2(dy, dx)
-        self.prev_robot.x = self.robot.x
-        self.prev_robot.y = self.robot.y
-
-    @staticmethod
-    def normalize_angle(angle_rad: float) -> float:
-        return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+        self.prev_robot = GPS_coordinates(x=self.robot.x, y=self.robot.y)
 
     def compute_steering(self) -> float:
-        psi_star = self.desired_heading()
-        error = self.normalize_angle(psi_star - self.robot_heading)
-        delta_deg = self.KH * math.degrees(error)
-
-        steer_value = STEER_CENTER + delta_deg  # + or - : flip if robot turns wrong way
-
-        steer_value = max(STEER_CENTER - MAX_STEER_ANGLE,
-                          min(STEER_CENTER + MAX_STEER_ANGLE, steer_value))
-
-        print(f"heading:{math.degrees(self.robot_heading):.1f}° "
-              f"desired:{math.degrees(psi_star):.1f}° "
-              f"err:{math.degrees(error):.1f}° steer:{steer_value:.1f}°")
-        return steer_value
-
+        """Convert heading error to a servo angle."""
+        err = self.heading_error()
+        # err in radians → map to degrees offset
+        steer_offset = math.degrees(err) * self.KH
+        steer_offset = max(-MAX_STEER_ANGLE, min(MAX_STEER_ANGLE, steer_offset))
+        return STEER_CENTER - steer_offset
+    
     def compute_speed(self) -> float:
-        return KV*self.distance()
+        """Proportional speed: slow down near target."""
+        dist = self.distance()
+        if dist < SLOW_ZONE:
+            speed = SPEED_MIN + (SPEED_MAX - SPEED_MIN) * (dist / SLOW_ZONE)
+        else:
+            speed = SPEED_MAX
+        return speed    
+    
+    # --- hardware functions
 
     def activate_motors(self) -> float:
         self.update_heading()
@@ -176,7 +173,7 @@ class Navigation:
 
         if dist < STOP_DIST:
             motorStop()
-            set_angle(0, STEER_CENTER)
+            set_angle( STEER_CENTER)
             self.finished = True
             print("DESTINATION REACHED")
             return 0.0
@@ -184,7 +181,7 @@ class Navigation:
         steer = self.compute_steering()
         speed = self.compute_speed()
 
-        set_angle(0, steer)
+        set_angle( steer)
         Motor(1, 1, speed)
         Motor(2, 1, speed)
 

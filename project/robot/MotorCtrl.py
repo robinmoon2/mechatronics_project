@@ -23,6 +23,9 @@ def map(x,in_min,in_max,out_min,out_max):
 
 i2c = busio.I2C(SCL, SDA)
 pwm_motor = PCA9685(i2c, address=0x5f)
+for i in range(16):
+    pca.channels[i].duty_cycle = 0
+
 pwm_motor.frequency = 50
 
 motor1 = motor.DCMotor(pwm_motor.channels[MOTOR_M1_IN1],pwm_motor.channels[MOTOR_M1_IN2] )
