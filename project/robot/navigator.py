@@ -12,13 +12,14 @@ from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
 from motor_driver import MotorDriver,  WHEEL_BASE_M, METRES_PER_PULSE
 
+
 STEER_CENTER = 90
-SPEED_MAX = 50
-SPEED_MIN = 10
+SPEED_MAX = 30
+SPEED_MIN = 20
 SLOW_ZONE = 0.45
 STOP_DIST = 0.20
 KV = 0.5
-MAX_STEER_ANGLE = 40
+MAX_STEER_ANGLE = 90
 WHEEL_RADIUS = 5
 
 # ── Data ───────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ class GPS_coordinates:
 
 
 class Navigation:
-    KH = 0.5
+    KH = 1
 
     def __init__(self, robot: GPS_coordinates, target: GPS_coordinates):
         self.robot = robot
@@ -54,12 +55,17 @@ class Navigation:
             min_pulse=500, max_pulse=2400, actuation_range=180
         )
         self.set_steering(STEER_CENTER)
+        self.tourelle_servo=servo.Servo(
+            self.driver._pca.channels[1],
+            min_pulse=500, max_pulse=2400, actuation_range=180
+        )
+        self.tourelle_servo.angle=90
 
     # --- Steering GPS
     def set_steering(self, angle: float):
         angle = max(0, min(180, angle))
         # Smooth: limit change to 10° per cycle
-        max_delta = 10
+        max_delta = 60
         delta = angle - self.prev_steer_angle
         delta = max(-max_delta, min(max_delta, delta))
         angle = self.prev_steer_angle + delta
@@ -91,7 +97,7 @@ class Navigation:
         dx = self.robot.x - self.prev_robot.x
         dy = self.robot.y - self.prev_robot.y
         if math.sqrt(dx**2 + dy**2) > 0.01:
-            self.robot_heading = math.atan2(dy, dx)
+            self.robot_heading = math.atan2(dy, dx) 
         self.prev_robot = GPS_coordinates(x=self.robot.x, y=self.robot.y)
 
     def compute_steering(self) -> float:
@@ -108,12 +114,24 @@ class Navigation:
             speed = SPEED_MAX
         return speed
 
-
     # --- hardware functions
+ 
 
-    def activate_motors(self) -> float:
-        self.update_heading()
+    def destroy(self):
+        self.driver.shutdown()
+    
+    def activate_motors(self, gps_alive: bool = True) -> float:
         dist = self.distance()
+        dx = self.target.x - self.robot.x
+        dy = self.target.y - self.robot.y
+        desired = math.degrees(self.desired_heading())
+        heading = math.degrees(self.robot_heading)
+        err = math.degrees(self.heading_error())
+        steer_val = self.compute_steering()
+        print(f"[NAV] dist={dist:.4f}  robot=({self.robot.x:.3f},{self.robot.y:.3f})"
+          f"  target=({self.target.x:.3f},{self.target.y:.3f})"
+          f"  heading={math.degrees(self.robot_heading):.1f}°"
+          f"  err={math.degrees(self.heading_error()):.1f}°")
 
         if dist < STOP_DIST:
             self.driver.stop()
@@ -122,57 +140,65 @@ class Navigation:
             print("DESTINATION REACHED")
             return 0.0
 
+        if gps_alive:
+            self.update_heading()
+
         steer = self.compute_steering()
         speed = self.compute_speed()
-        
         self.set_steering(steer)
         self.driver.forward(speed)
         return speed
 
-    def destroy(self):
-        self.driver.shutdown()
-    
-    
-    def navigation_choice(self,gps_alive=False):
+    # def activate_motors(self, gps_alive: bool = True) -> float:
+    #     dist = self.distance()
+    #     print(f"[NAV] dist={dist:.4f}  target=({self.target.x:.3f},{self.target.y:.3f})"
+    #         f"  robot=({self.robot.x:.3f},{self.robot.y:.3f})  finished={self.finished}")
+
+    #     if dist < STOP_DIST:
+    #         self.driver.stop()
+    #         self.set_steering(STEER_CENTER)
+    #         self.finished = True
+    #         print("  DESTINATION REACHED")
+    #         return 0.0
+
+    #     # Only update heading from GPS delta when GPS is alive
+    #     # Odometry already updated heading in compute_odometry()
+    #     if gps_alive:
+    #         self.update_heading()
+
+    #     steer = self.compute_steering()
+    #     speed = self.compute_speed()
+    #     self.set_steering(steer)
+    #     self.driver.forward(speed)
+    #     return speed
+
+    def navigation_choice(self, gps_alive: bool = False):
         if gps_alive:
             self.driver.reset_odometry()
+            self.update_heading()          # heading from GPS delta
         else:
-            self.compute_odometry()
+            self.compute_odometry()        # heading from odometry
 
         if not self.finished:
-            self.activate_motors()
+            self.activate_motors(gps_alive=gps_alive)   # pass flag
         else:
             self.driver.stop()
 
-    
+    # Temporarily boost odometry aggressiveness
     def compute_odometry(self):
         results = self.driver.get_odometry()
         tl = results["total_left_pulses"]
         tr = results["total_right_pulses"]
-        
+
         delta_l = tl - self.prev_left
         delta_r = tr - self.prev_right
-        
-        # self.prev_left = tl
-        # self.prev_right = tr
+        self.prev_left = tl
+        self.prev_right = tr
 
         dl = delta_l * METRES_PER_PULSE
         dr = delta_r * METRES_PER_PULSE
-
         d_distance = (dl + dr) / 2.0
 
-        # Bicycle model
-        d_theta = d_distance * math.tan(self.current_steering) / WHEEL_BASE_M
-
-        self.robot_heading += d_theta
-        self.robot.x += d_distance * math.cos(self.robot_heading)
-        self.robot.y += d_distance * math.sin(self.robot_heading)
-        
-        print(f"[ODO] pulses L={tl} R={tr} dist={d_distance:.4f} "
-          f"steer={math.degrees(self.current_steering):.1f}° "
-          f"d_theta={math.degrees(d_theta):.2f}° "
-          f"heading={math.degrees(self.robot_heading):.1f}° "
-          f"pos=({self.robot.x:.3f}, {self.robot.y:.3f}) "
-          f"target=({self.target.x:.3f}, {self.target.y:.3f})")
-        self.driver.reset_odometry()
-
+        if abs(d_distance) < 1e-6:
+            print("[ODO] No movement detected")
+            d_distance = (SPEED_MIN / 100.0) * 0.1  # rough fallback

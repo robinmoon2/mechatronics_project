@@ -19,7 +19,7 @@ from gpiozero import DistanceSensor
 # ── Ultrasonic ─────────────────────────────────────────────────
 TRIG            = 23
 ECHO_PIN        = 24
-OBSTACLE_DIST_CM = 25
+OBSTACLE_DIST_CM = 10
 
 sensor = DistanceSensor(echo=ECHO_PIN, trigger=TRIG, max_distance=2)
 
@@ -300,11 +300,11 @@ def run():
                         robot_fresh=False,
                         target_fresh=False
                     )
-                render_dashboard(
-                    states, client_ip, frame_id, pkt_count,
-                    fps, distance, speed, angle, nav_mode, controller.state
-                )
                 continue
+                # render_dashboard(
+                #    states, client_ip, frame_id, pkt_count,
+                #    fps, distance, speed, angle, nav_mode, controller.state
+                # )
 
             # ── Parse ──────────────────────────────────────────
             try:
@@ -331,6 +331,7 @@ def run():
             pkt_count += 1
 
             # ── Update nav object ──────────────────────────────
+            # ── Update nav object ──────────────────────────────
             robot_id_str  = str(ROBOT_ID)
             target_id_str = str(TARGET_ID)
 
@@ -355,32 +356,26 @@ def run():
                         controller.set_nav(nav)
                         nav_ref["nav"] = nav
                         print("[NAV] Navigation object created")
+
                     elif controller.state not in (RobotState.AVOIDING, RobotState.OBSTACLE):
                         nav = controller.nav
-                        
-                        if not robot_fresh: # was in odom and GPS again
-                            nav.prev_robot.x = robot_s.x
-                            nav.prev_robot.y = robot_s.y
 
-                        nav.robot.x  = robot_s.x
-                        nav.robot.y  = robot_s.y
-                        nav.robot.z  = robot_s.z
+                        # Save previous position BEFORE updating (for odometry delta)
+                        nav.prev_robot.x = nav.robot.x
+                        nav.prev_robot.y = nav.robot.y
 
-                        # ── Target: always update when visible
+                        # Update robot position
+                        nav.robot.x = robot_s.x
+                        nav.robot.y = robot_s.y
+                        nav.robot.z = robot_s.z
+
+                        # Always update target when visible
                         nav.target.x = target_s.x
                         nav.target.y = target_s.y
                         nav.target.z = target_s.z
-                    else:
-                        # Only update GPS positions when NOT avoiding
-                        if controller.state not in (
-                            RobotState.AVOIDING, RobotState.OBSTACLE
-                        ):
-                            controller.nav.robot.x  = robot_s.x
-                            controller.nav.robot.y  = robot_s.y
-                            controller.nav.robot.z  = robot_s.z
-                            controller.nav.target.x = target_s.x
-                            controller.nav.target.y = target_s.y
-                            controller.nav.target.z = target_s.z
+
+                    # If AVOIDING or OBSTACLE: intentionally skip GPS updates
+                    # The avoidance routine runs open-loop
 
                 # ── Run state machine (ONE place that controls motors)
                 nav_mode = controller.update(robot_fresh, target_fresh)
@@ -390,10 +385,9 @@ def run():
             angle    = nav.compute_steering() if nav else None
             speed    = None if nav is None else (0.0 if nav.finished else None)
 
-            render_dashboard(
-                states, client_ip, frame_id, pkt_count,
-                fps, distance, speed, angle, nav_mode, controller.state
-            )
+            #render_dashboard(
+            #   states, client_ip, frame_id, pkt_count,
+            #   fps, distance, speed, angle, nav_mode, controller.state)
 
     except KeyboardInterrupt:
         log.info("Server stopped.")
