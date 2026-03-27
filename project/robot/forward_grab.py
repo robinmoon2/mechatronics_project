@@ -14,28 +14,33 @@ SHOULDER_CH = 2
 ELBOW_CH = 3
 GRIPPER_CH = 4
 
+GRIPPER_OPEN = 80
+GRIPPER_CLOSE = 0
+
 def set_angle(ID, angle):
     angle = max(0, min(180, angle))
     s = servo.Servo(pca.channels[ID], min_pulse=500, max_pulse=2400, actuation_range=180)
     s.angle = angle
 
-# ============================================
-# DEFINE YOUR SEQUENCE HERE
-# Each step: (base, shoulder, elbow, gripper)
-# ============================================
 sequence = [
-    # Step 0: Home position
-    (90, 90, 90, 0),
+    # Step 0: Home — all at 90, gripper open
+    (90, 90, 90, GRIPPER_OPEN),
 
-    # Step 1: Open gripper, position above object
-    (90, 134, 90, 0),
+    # Step 1: Reach down — shoulder to 180
+    (90, 150, 100, GRIPPER_OPEN),
+
+    # Step 2: Close gripper
+    (90, 150, 90, GRIPPER_CLOSE),
+
+    # Step 3: Back to home with object
+    (90, 90, 90, GRIPPER_CLOSE),
+    
+    (90, 90, 90, GRIPPER_OPEN),
+
 ]
 
-DELAY_BETWEEN_STEPS = 1.0  # seconds between each step
+DELAY_BETWEEN_STEPS = 2.0
 
-# ============================================
-# EXECUTE
-# ============================================
 def run_sequence():
     for i, (base, shoulder, elbow, gripper) in enumerate(sequence):
         print(f"Step {i}: base={base} shoulder={shoulder} elbow={elbow} gripper={gripper}")
@@ -54,6 +59,8 @@ if __name__ == "__main__":
         set_angle(BASE_CH, 90)
         set_angle(SHOULDER_CH, 90)
         set_angle(ELBOW_CH, 90)
-        set_angle(GRIPPER_CH, 30)
+        set_angle(GRIPPER_CH, 90)
+        set_angle(GRIPPER_CH, 80)
+
     finally:
         pca.deinit()

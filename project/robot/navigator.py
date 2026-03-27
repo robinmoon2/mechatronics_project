@@ -8,19 +8,54 @@ from dataclasses import dataclass
 import time
 from board import SCL, SDA
 import busio
+import numpy as np
+import cv2
+import cv2.aruco as aruco
 from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
 from motor_driver import MotorDriver,  WHEEL_BASE_M, METRES_PER_PULSE
 
 
-STEER_CENTER = 90
+STEER_CENTER = 100
 SPEED_MAX = 30
 SPEED_MIN = 20
-SLOW_ZONE = 0.45
-STOP_DIST = 0.20
+SLOW_ZONE = 0.30
+STOP_DIST = 0.12
 KV = 0.5
-MAX_STEER_ANGLE = 90
+MAX_STEER_ANGLE = 30
 WHEEL_RADIUS = 5
+
+
+# - Local camera recognescence
+CAMERA_INDEX     = 0          # /dev/video0
+MARKER_SIZE_OBJECT      = 0.04       # meters — measure your printed marker
+
+CAMERA_MATRIX = np.array([
+    [640,   0, 320],
+    [  0, 640, 240],
+    [  0,   0,   1],
+], dtype=np.float32)
+
+DIST_COEFFS = np.zeros(5, dtype=np.float32)
+
+DELAY_BETWEEN_STEPS = 1.0
+OBJECT_ID = 2
+# ── ArUco ──────────────────────────────────────────────────────
+ARUCO_DICT   = aruco.getPredefinedDictionary(aruco.DICT_4X4_100)
+ARUCO_PARAMS = aruco.DetectorParameters()
+DETECTOR     = aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
+
+GRAB_SEQUENCE = [
+    (90, 90, 90, 90),
+
+    (90, 180, 90, 90),
+
+    (30, 180, 90, 90),
+
+    
+    (90, 90, 90, 90)    
+
+]
 
 # ── Data ───────────────────────────────────────────────────────
 @dataclass
@@ -41,28 +76,36 @@ class Navigation:
         self.robot_heading = 0.0
         self.current_steering = STEER_CENTER
         self.prev_steer_angle = STEER_CENTER
-
         # DC motors + encoders
         self.driver = MotorDriver(enable_encoders=True)
         self.driver.stop()
         
         self.prev_left = 0
         self.prev_right = 0
+        
+        self.find_aruco_object = False
 
         # Steering servo (shares the same PCA9685 as motors)
         self.steering_servo = servo.Servo(
             self.driver._pca.channels[0],
             min_pulse=500, max_pulse=2400, actuation_range=180
         )
-        self.set_steering(STEER_CENTER)
-        self.tourelle_servo=servo.Servo(
+        self.tourelle_servo = servo.Servo(
             self.driver._pca.channels[1],
             min_pulse=500, max_pulse=2400, actuation_range=180
         )
-        self.tourelle_servo.angle=90
+        self.shoulder_servo = servo.Servo(
+            self.driver._pca.channels[2],
+            min_pulse=500, max_pulse=2400, actuation_range=180
+        )
+        self.elbow_servo = servo.Servo(
+            self.driver._pca.channels[3],
+            min_pulse=500, max_pulse=2400, actuation_range=180
+        )
+        self.set_steering(STEER_CENTER)
 
     # --- Steering GPS
-    def set_steering(self, angle: float):
+    def set_steering(self, angle: float ):
         angle = max(0, min(180, angle))
         # Smooth: limit change to 10° per cycle
         max_delta = 60
@@ -72,7 +115,12 @@ class Navigation:
         self.prev_steer_angle = angle
         
         self.steering_servo.angle = angle
+        self.shoulder_servo.angle = STEER_CENTER
+        self.elbow_servo.angle = STEER_CENTER
+
+        self.tourelle_servo.angle = 180 - angle
         self.current_steering = math.radians(angle - STEER_CENTER)
+        
         
     # --- Utility functions GPS
 
@@ -128,6 +176,7 @@ class Navigation:
         heading = math.degrees(self.robot_heading)
         err = math.degrees(self.heading_error())
         steer_val = self.compute_steering()
+        
         print(f"[NAV] dist={dist:.4f}  robot=({self.robot.x:.3f},{self.robot.y:.3f})"
           f"  target=({self.target.x:.3f},{self.target.y:.3f})"
           f"  heading={math.degrees(self.robot_heading):.1f}°"
@@ -148,30 +197,8 @@ class Navigation:
         self.set_steering(steer)
         self.driver.forward(speed)
         return speed
-
-    # def activate_motors(self, gps_alive: bool = True) -> float:
-    #     dist = self.distance()
-    #     print(f"[NAV] dist={dist:.4f}  target=({self.target.x:.3f},{self.target.y:.3f})"
-    #         f"  robot=({self.robot.x:.3f},{self.robot.y:.3f})  finished={self.finished}")
-
-    #     if dist < STOP_DIST:
-    #         self.driver.stop()
-    #         self.set_steering(STEER_CENTER)
-    #         self.finished = True
-    #         print("  DESTINATION REACHED")
-    #         return 0.0
-
-    #     # Only update heading from GPS delta when GPS is alive
-    #     # Odometry already updated heading in compute_odometry()
-    #     if gps_alive:
-    #         self.update_heading()
-
-    #     steer = self.compute_steering()
-    #     speed = self.compute_speed()
-    #     self.set_steering(steer)
-    #     self.driver.forward(speed)
-    #     return speed
-
+    
+    
     def navigation_choice(self, gps_alive: bool = False):
         if gps_alive:
             self.driver.reset_odometry()
@@ -202,3 +229,232 @@ class Navigation:
         if abs(d_distance) < 1e-6:
             print("[ODO] No movement detected")
             d_distance = (SPEED_MIN / 100.0) * 0.1  # rough fallback
+            
+    # Aruco finding 
+    def grab_object(self, tourelle_angle:float, dist:float):
+        self.tourelle_servo.angle = tourelle_angle
+        if(dist > 10):
+            print("[GRAB] Impossible too far")
+        
+        else:    
+            for i, (base, shoulder, elbow, gripper) in enumerate(GRAB_SEQUENCE):
+                print(f"Step {i}: base={base} shoulder={shoulder} elbow={elbow} gripper={gripper}")
+                self.shoulder_servo.angle = shoulder
+                self.elbow_servo.angle = elbow
+                time.sleep(DELAY_BETWEEN_STEPS)
+        time.sleep(4)
+            
+    def localize_object(self):
+        
+        print(f"[LOCALIZE] Opening camera {CAMERA_INDEX}...")
+        cap = cv2.VideoCapture(CAMERA_INDEX)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        if not cap.isOpened():
+            print("[LOCALIZE] Cannot open camera")
+            return None, None, None
+
+        # Let auto-exposure settle
+        time.sleep(1.0)
+        for _ in range(10):
+            cap.read()
+    
+        # ── Forward sweep: 0° → 180° ──
+        for angle in range(0, 181, 5):
+            self.elbow_servo.angle = 50
+            self.shoulder_servo.angle = 70
+            self.tourelle_servo.angle = angle
+            time.sleep(0.5)  # wait for servo to reach position
+
+            # Flush stale frames
+            for _ in range(5):
+                cap.read()
+
+            ret, frame = cap.read()
+            if not ret:
+                print(f"[LOCALIZE] Camera read failed at {angle}°")
+                continue
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            corners, ids, _ = DETECTOR.detectMarkers(gray)
+
+            if ids is not None:
+                for i, mid in enumerate(ids.flatten()):
+                    if mid == OBJECT_ID:
+                        c = corners[i][0]
+                        cx = float(np.mean(c[:, 0]))
+
+                        rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
+                            corners[i:i+1], MARKER_SIZE_OBJECT,
+                            CAMERA_MATRIX, DIST_COEFFS
+                        )
+                        tx, ty, tz = tvecs[0][0]
+                        dist = float(math.sqrt(tx**2 + ty**2 + tz**2))
+
+                        print(f"[LOCALIZE] Found ID {OBJECT_ID} at tourelle={angle}° "
+                            f"dist={dist:.3f}m cx={cx:.0f}px")
+
+                        self.find_aruco_object = True
+                        cap.release()
+                        return angle, cx, dist
+
+            print(f"[LOCALIZE] Tourelle {angle}° — not found")
+
+        # ── Reverse sweep: 180° → 0° (finer check) ──
+        print("[LOCALIZE] Forward sweep done — reverse pass")
+        for angle in range(180, -1, -5):
+            self.tourelle_servo.angle = angle
+            time.sleep(0.5)
+
+            for _ in range(5):
+                cap.read()
+
+            ret, frame = cap.read()
+            if not ret:
+                continue
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            corners, ids, _ = DETECTOR.detectMarkers(gray)
+
+            if ids is not None:
+                for i, mid in enumerate(ids.flatten()):
+                    if mid == OBJECT_ID:
+                        c = corners[i][0]
+                        cx = float(np.mean(c[:, 0]))
+
+                        rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
+                            corners[i:i+1], MARKER_SIZE_OBJECT,
+                            CAMERA_MATRIX, DIST_COEFFS
+                        )
+                        tx, ty, tz = tvecs[0][0]
+                        dist = float(math.sqrt(tx**2 + ty**2 + tz**2))
+
+                        print(f"[LOCALIZE] Found ID {OBJECT_ID} at tourelle={angle}° "
+                            f"(reverse) dist={dist:.3f}m cx={cx:.0f}px")
+
+                        self.find_aruco_object = True
+                        cap.release()
+                        return angle, cx, dist
+
+        print(f"[LOCALIZE] ArUco ID {OBJECT_ID} not found in full sweep")
+        self.find_aruco_object = False
+        cap.release()
+        return None, None, None
+
+
+
+    def approach_and_grab(self, min_dist=0.10):
+        """
+        After localize_object found the ArUco, drive toward it while
+        keeping it centered in camera, stop at min_dist, then grab.
+        """
+
+        FRAME_CENTER_X = 320
+        KP_STEER = 0.08          # px offset → steering correction
+        APPROACH_SPEED = 20
+        LOST_MAX = 15             # frames without detection → abort
+        TIMEOUT = 20.0            # seconds
+
+        cap = cv2.VideoCapture(CAMERA_INDEX)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.elbow_servo.angle = 50
+        self.shoulder_servo.angle = 70
+        if not cap.isOpened():
+            print("[APPROACH] Cannot open camera")
+            return False
+
+        time.sleep(0.5)
+        for _ in range(5):
+            cap.read()
+            
+            
+        time.sleep(0.5)
+
+        lost_count = 0
+        t_start = time.time()
+        success = False
+
+        try:
+            while time.time() - t_start < TIMEOUT:
+                # Flush + read
+                for _ in range(3):
+                    cap.read()
+                ret, frame = cap.read()
+                if not ret:
+                    continue
+
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                corners, ids, _ = DETECTOR.detectMarkers(gray)
+
+                found = False
+                if ids is not None:
+                    for i, mid in enumerate(ids.flatten()):
+                        if mid == OBJECT_ID:
+                            found = True
+                            lost_count = 0
+
+                            # ── Pixel center ──
+                            c = corners[i][0]
+                            cx = float(np.mean(c[:, 0]))
+
+                            # ── Distance ──
+                            rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
+                                corners[i:i+1], MARKER_SIZE_OBJECT,
+                                CAMERA_MATRIX, DIST_COEFFS
+                            )
+                            tx, ty, tz = tvecs[0][0]
+                            dist = float(math.sqrt(tx**2 + ty**2 + tz**2))
+
+                            print(f"[APPROACH] dist={dist:.3f}m  cx={cx:.0f}px  "
+                                f"offset={cx - FRAME_CENTER_X:.0f}px")
+
+                            # ── Close enough → stop and grab ──
+                            if dist <= min_dist:
+                                self.driver.stop()
+                                self.set_steering(STEER_CENTER)
+                                print(f"[APPROACH] Reached {dist:.3f}m — grabbing!")
+                                time.sleep(0.5)
+                                self.grab_object()
+                                success = True
+                                break
+
+                            # ── Steer toward marker center ──
+                            pixel_error = cx - FRAME_CENTER_X
+                            steer_offset = pixel_error * KP_STEER
+                            steer_offset = max(-MAX_STEER_ANGLE, min(MAX_STEER_ANGLE, steer_offset))
+                            steer = STEER_CENTER - steer_offset
+                            self.set_steering(steer)
+
+                            # ── Drive forward ──
+                            if dist < 0.20:
+                                self.driver.forward(15)
+                            else:
+                                self.driver.forward(APPROACH_SPEED)
+
+                            break  # process only first matching marker
+
+                if success:
+                    break
+
+                if not found:
+                    lost_count += 1
+                    print(f"[APPROACH] Lost marker ({lost_count}/{LOST_MAX})")
+                    self.driver.stop()
+
+                    if lost_count >= LOST_MAX:
+                        print("[APPROACH] Marker lost too long — aborting")
+                        break
+
+                time.sleep(0.05)
+
+        except Exception as e:
+            print(f"[APPROACH] Error: {e}")
+
+        finally:
+            self.driver.stop()
+            self.set_steering(STEER_CENTER)
+            cap.release()
+
+        return success
