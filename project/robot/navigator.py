@@ -13,7 +13,7 @@ from adafruit_motor import servo
 from motor_driver import MotorDriver,  WHEEL_BASE_M, METRES_PER_PULSE
 
 STEER_CENTER = 90
-SPEED_MAX = 50
+SPEED_MAX = 30
 SPEED_MIN = 10
 SLOW_ZONE = 0.45
 STOP_DIST = 0.20

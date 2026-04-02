@@ -20,7 +20,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("gps_client")
 
-
 def build_payload(frame_id: int, positions: dict) -> bytes:
     data = {
         "timestamp": round(time.time(), 4),
@@ -32,75 +31,77 @@ def build_payload(frame_id: int, positions: dict) -> bytes:
     }
     return json.dumps(data).encode("utf-8")
 
-
 def run():
     cfg = Config()
     gps = ArucoGPS(
-        camera_matrix = cfg.CAMERA_MATRIX,
-        dist_coeffs   = cfg.DIST_COEFFS,
-        marker_size   = cfg.MARKER_SIZE,
-        aruco_dict_id = cfg.aruco_dict,
-        origin_id     = cfg.ORIGIN_ID,
+    camera_matrix = cfg.CAMERA_MATRIX,
+    dist_coeffs   = cfg.DIST_COEFFS,
+    marker_size   = cfg.MARKER_SIZE,
+    aruco_dict_id = cfg.aruco_dict,
+    origin_id     = cfg.ORIGIN_ID,
     )
 
     cap = cv2.VideoCapture(cfg.camera_source)
-    if not cap.isOpened():
-        log.error("Cannot open camera source: %s", cfg.camera_source)
-        return
+    # cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)    # 1 = manual mode
+    # cap.set(cv2.CAP_PROP_EXPOSURE, -6)        # lower = darker, try -10 to -13
+    # cap.set(cv2.CAP_PROP_BRIGHTNESS, 100)       # default ~128, lower it
+    # cap.set(cv2.CAP_PROP_GAIN, 0)             # minimize gain
+
 
     sock          = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     send_interval = 1.0 / cfg.SEND_RATE_HZ
     last_send     = 0.0
     frame_id      = 0
 
-    log.info("Streaming to %s:%d at %d Hz", cfg.ROBOT_IP, cfg.ROBOT_PORT, cfg.SEND_RATE_HZ)
-    log.info("Tracking IDs %s  |  Origin ID = %d", cfg.TRACKED_IDS, cfg.ORIGIN_ID)
+    # ── Last known positions (used when marker lost) ──────────
+    last_known    = {}          # {marker_id: (Position, timestamp)}
+    STALE_TIMEOUT = 0.5         # seconds before discarding stale data
 
     try:
         while True:
-            ret, frame = cap.read()
+            # Drain buffer — always process freshest frame
+            for _ in range(3):
+                cap.grab()
+            ret, frame = cap.retrieve()
+
             if not ret:
-                log.warning("Failed to grab frame — retrying...")
-                time.sleep(0.05)
                 continue
 
             frame_id += 1
             positions, annotated, origin_seen = gps.process_frame(frame)
 
-            # ── Filter to tracked IDs only ────────────────────────
             tracked = {
                 mid: pos
                 for mid, pos in positions.items()
                 if mid in cfg.TRACKED_IDS
             }
 
-            # ── HUD ───────────────────────────────────────────────
-            if not origin_seen:
-                cv2.putText(annotated, "ID 0 (origin) not visible!",
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7, (0, 0, 255), 2)
-            else:
-                status = (
-                    f"Tracking {list(tracked.keys())} -> "
-                    f"{cfg.ROBOT_IP}:{cfg.ROBOT_PORT}"
-                )
-                cv2.putText(annotated, status,
-                            (10, annotated.shape[0] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
-
-            # ── Send UDP packet ───────────────────────────────────
             now = time.time()
-            if tracked and (now - last_send) >= send_interval:
-                payload = build_payload(frame_id, tracked)
+
+            # ── Update last known ─────────────────────────────
+            for mid, pos in tracked.items():
+                last_known[mid] = (pos, now)
+
+            # ── Fill missing with stale data ──────────────────
+            effective = dict(tracked)
+            for mid in cfg.TRACKED_IDS:
+                if mid not in effective and mid in last_known:
+                    pos, ts = last_known[mid]
+                    if now - ts < STALE_TIMEOUT:
+                        effective[mid] = pos
+                        # Visual indicator
+                        cv2.putText(annotated, f"ID{mid} STALE",
+                                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.6, (0, 165, 255), 2)
+
+            # ── Send ──────────────────────────────────────────
+            if effective and (now - last_send) >= send_interval:
+                payload = build_payload(frame_id, effective)
                 sock.sendto(payload, (cfg.ROBOT_IP, cfg.ROBOT_PORT))
                 last_send = now
-                log.info("frame=%-6d sent=%s", frame_id, {
-                    mid: (p.x, p.y, p.z) for mid, p in tracked.items()
-                })
 
             cv2.imshow("ArUco GPS Client", annotated)
             if cv2.waitKey(1) & 0xFF == ord("q"):
-                log.info("Quit requested.")
                 break
 
     except KeyboardInterrupt:
@@ -109,8 +110,6 @@ def run():
         cap.release()
         sock.close()
         cv2.destroyAllWindows()
-        log.info("Resources released.")
-
 
 if __name__ == "__main__":
     run()
