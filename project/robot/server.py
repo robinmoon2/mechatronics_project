@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from navigator import GPS_coordinates, Navigation, STEER_CENTER, SPEED_MIN
 from obstacle_avoidance import check_obstacle_avg, avoid_obstacle, OBSTACLE_DIST_CM
+from config import RobotConfig
 
 # ── Logging ────────────────────────────────────────────────────
 logging.basicConfig(
@@ -23,23 +24,25 @@ logging.basicConfig(
 )
 log = logging.getLogger("gps_server")
 
+cfg = RobotConfig()
+
 # --- Config 
-HOST        = "0.0.0.0"
-PORT        = 5005
-BUFFER_SIZE = 4096
-ROBOT_ID    = 5
-GPS_TIMEOUT = 0.2
+HOST = cfg.HOST
+PORT = cfg.PORT
+BUFFER_SIZE = cfg.BUFFER_SIZE
+ROBOT_ID = cfg.ROBOT_ID
+GPS_TIMEOUT = cfg.GPS_TIMEOUT
 
 # --- Target waypoint list (ArUco IDs in order) 
-TARGET_IDS  = [1, 4]   
-PAUSE_AT_TARGET = 2.0      # seconds to pause at each waypoint
+TARGET_IDS = cfg.TARGET_IDS
+PAUSE_AT_TARGET = cfg.PAUSE_AT_TARGET
 
 # -- Obstacle polling 
-OBSTACLE_CHECK_HZ = 10
+OBSTACLE_CHECK_HZ = cfg.OBSTACLE_CHECK_HZ
 
 # --- Stop for object 
-STOP_ID = 1
-OBJECT_ID = 2
+STOP_ID = cfg.STOP_ID
+OBJECT_ID = cfg.OBJECT_ID
 
 @dataclass
 class MarkerState:

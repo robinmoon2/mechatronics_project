@@ -13,10 +13,12 @@ import cv2
 import cv2.aruco as aruco
 from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
-from motor_driver import MotorDriver,  WHEEL_BASE_M, METRES_PER_PULSE
+from motor_driver import MotorDriver, WHEEL_BASE_M, METRES_PER_PULSE
+from config import RobotConfig
 
+cfg = RobotConfig()
 
-STEER_CENTER = 100
+STEER_CENTER = cfg.STEER_CENTER
 SPEED_MAX = 30
 SPEED_MIN = 20
 SLOW_ZONE = 0.30
@@ -27,8 +29,8 @@ WHEEL_RADIUS = 5
 
 
 # - Local camera recognescence
-CAMERA_INDEX     = 0          # /dev/video0
-MARKER_SIZE_OBJECT      = 0.04       # meters — measure your printed marker
+CAMERA_INDEX = cfg.CAMERA_INDEX
+MARKER_SIZE_OBJECT = cfg.MARKER_SIZE_M  # meters — measure your printed marker
 
 CAMERA_MATRIX = np.array([
     [640,   0, 320],

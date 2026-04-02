@@ -19,22 +19,26 @@ Usage from server.py:
 import time
 import RPi.GPIO as GPIO
 
-# ── Ultrasonic pins ────────────────────────────────────────────
+from config import RobotConfig
+
+cfg = RobotConfig()
+
+# ── Ultrasonic pins ───────────────────────────────────────────
 TRIG = 23
 ECHO_PIN = 24
 
 # ── Thresholds ─────────────────────────────────────────────────
-OBSTACLE_DIST_CM = 25        # trigger avoidance
-CLEAR_DIST_CM = 20           # consider path clear
+OBSTACLE_DIST_CM = cfg.OBSTACLE_DIST_CM
+CLEAR_DIST_CM = cfg.CLEAR_DIST_CM
 
 # ── Avoidance tuning ──────────────────────────────────────────
-STOP_PAUSE = 1
-TURN_CHECK_INTERVAL = 0.15   # seconds between sensor checks while turning
-MAX_TURN_TIME = 20.0          # max seconds turning before giving up
-MIN_TURN_TIME = 1.0
-AVOID_SPEED = 30
-STEER_CENTER = 100
-STEER_RIGHT = STEER_CENTER + 30   # 50
+STOP_PAUSE = cfg.STOP_PAUSE
+TURN_CHECK_INTERVAL = cfg.TURN_CHECK_INTERVAL
+MAX_TURN_TIME = cfg.MAX_TURN_TIME
+MIN_TURN_TIME = cfg.MIN_TURN_TIME
+AVOID_SPEED = cfg.AVOID_SPEED
+STEER_CENTER = cfg.STEER_CENTER
+STEER_RIGHT = cfg.STEER_CENTER + cfg.STEER_ADJUST
 
 # ── GPIO setup ─────────────────────────────────────────────────
 _gpio_ready = False
