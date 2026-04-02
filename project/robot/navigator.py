@@ -42,7 +42,7 @@ DIST_COEFFS = np.zeros(5, dtype=np.float32)
 
 DELAY_BETWEEN_STEPS = 1.0
 OBJECT_ID = 2
-# ── ArUco ──────────────────────────────────────────────────────
+#  ArUco 
 ARUCO_DICT   = aruco.getPredefinedDictionary(aruco.DICT_4X4_100)
 ARUCO_PARAMS = aruco.DetectorParameters()
 DETECTOR     = aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
@@ -59,7 +59,7 @@ GRAB_SEQUENCE = [
 
 ]
 
-# ── Data ───────────────────────────────────────────────────────
+#  Data 
 @dataclass
 class GPS_coordinates:
     x: float = 0.0

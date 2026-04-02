@@ -13,13 +13,13 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("gps_receiver")
 
-# ── Config ─────────────────────────────────────────────────────
+#  Config 
 HOST        = "0.0.0.0"
 PORT        = 5005
 CLIENT_PORT = 5006        # port we reply to on the PC
 BUFFER_SIZE = 4096
 
-# ── Parsed position ────────────────────────────────────────────
+#  Parsed position 
 @dataclass
 class TargetReading:
     """
@@ -82,7 +82,7 @@ class GPSReceiver:
         self._running = False
         self._thread  = threading.Thread(target=self._loop, daemon=True)
 
-    # ── Public API ────────────────────────────────────────────
+    #  Public API 
     def start(self):
         self._running = True
         self._thread.start()
@@ -111,7 +111,7 @@ class GPSReceiver:
         payload = json.dumps(cmd).encode("utf-8")
         self._sock.sendto(payload, self._client_addr)
 
-    # ── Internal ──────────────────────────────────────────────
+    #  Internal 
     def _loop(self):
         while self._running:
             try:

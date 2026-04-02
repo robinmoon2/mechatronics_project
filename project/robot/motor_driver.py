@@ -20,9 +20,6 @@ from board import SCL, SDA
 import busio
 from adafruit_pca9685 import PCA9685
 from adafruit_motor import motor
-
-
-# ═══════════════════════════════════════════════════════════════
 #  Constants — ADJUST TO YOUR ROBOT
 
 # PCA9685 channel assignments
@@ -146,9 +143,7 @@ class _EncoderReader(threading.Thread):
             time.sleep(self.poll_interval)
 
 
-# ═══════════════════════════════════════════════════════════════
 #  Odometry State
-# ═══════════════════════════════════════════════════════════════
 
 class _Odometry:
     """Integrates encoder pulses into (x, y, theta) pose."""
@@ -183,9 +178,7 @@ class _Odometry:
         }
 
 
-# ═══════════════════════════════════════════════════════════════
 #  MotorDriver — the public API
-# ═══════════════════════════════════════════════════════════════
 
 class MotorDriver:
     """
@@ -204,7 +197,7 @@ class MotorDriver:
     """
 
     def __init__(self, enable_encoders: bool = True):
-        # ── PCA9685 ───────────────────────────────────────────
+        #  PCA9685 
         self._i2c = busio.I2C(SCL, SDA)
         self._pca = PCA9685(self._i2c, address=PCA_ADDRESS)
         self._pca.frequency = 50
@@ -213,7 +206,7 @@ class MotorDriver:
         for ch in range(16):
             self._pca.channels[ch].duty_cycle = 0
 
-        # ── DC motors ─────────────────────────────────────────
+        #  DC motors 
         self._motors = {
             1: motor.DCMotor(self._pca.channels[MOTOR_M1_IN1],
                              self._pca.channels[MOTOR_M1_IN2]),
@@ -228,7 +221,7 @@ class MotorDriver:
             m.decay_mode = motor.SLOW_DECAY
             m.throttle = 0
 
-        # ── Encoders + odometry ───────────────────────────────
+        #  Encoders + odometry 
         self._encoders_enabled = enable_encoders
         self._odometry = _Odometry()
         self._encoder_reader = None
@@ -244,7 +237,7 @@ class MotorDriver:
                       "encoders disabled")
                 self._encoders_enabled = False
 
-    # ── Private helpers ───────────────────────────────────────
+    #  Private helpers 
 
     @staticmethod
     def _pct_to_throttle(pct: float) -> float:
@@ -265,7 +258,7 @@ class MotorDriver:
     @property
     def pca(self):
         return self._pca
-    # ── Public motor control ──────────────────────────────────
+    #  Public motor control 
 
     def forward(self, speed_pct: float = 50):
         """Both sides forward at *speed_pct* %."""
@@ -297,7 +290,7 @@ class MotorDriver:
             m.throttle = 0
         self._update_odometry()
 
-    # ── Odometry ──────────────────────────────────────────────
+    #  Odometry 
 
     def get_odometry(self) -> dict:
         """
@@ -326,7 +319,7 @@ class MotorDriver:
         self._odometry.update(lp, rp)
         return abs(lp) > 0 or abs(rp) > 0
 
-    # ── Lifecycle ─────────────────────────────────────────────
+    #  Lifecycle 
 
     def shutdown(self):
         """Stop motors, stop encoder thread, release PCA9685."""
@@ -346,14 +339,13 @@ class MotorDriver:
             pass
 
 
-# ═══════════════════════════════════════════════════════════════
 #  Quick self-test
 
 if __name__ == "__main__":
   driver = MotorDriver(enable_encoders=True)
 
   try:
-      # ── Test each motor one at a time ──
+      # ─ Test each motor one at a time ─
       for ch in range(1, 5):
           print(f"\n--- Motor {ch} spinning forward at 40% for 1.5s ---")
           driver.set_motor(ch, 40)
@@ -365,7 +357,7 @@ if __name__ == "__main__":
           driver.reset_odometry()
           time.sleep(1)
 
-      # ── All forward ──
+      # ─ All forward ─
       print("\n--- All motors forward 50% for 2s ---")
       driver.reset_odometry()
       driver.forward(50)
@@ -374,7 +366,7 @@ if __name__ == "__main__":
       print(f"    Odometry: {driver.get_odometry()}")
       time.sleep(1)
 
-      # ── All backward ──
+      # ─All backward ─
       print("\n--- All motors backward 50% for 2s ---")
       driver.reset_odometry()
       driver.backward(50)

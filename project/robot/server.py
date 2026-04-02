@@ -16,7 +16,7 @@ from navigator import GPS_coordinates, Navigation, STEER_CENTER, SPEED_MIN
 from obstacle_avoidance import check_obstacle_avg, avoid_obstacle, OBSTACLE_DIST_CM
 from config import RobotConfig
 
-# ── Logging ────────────────────────────────────────────────────
+#  Logging 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -66,7 +66,7 @@ def obstacle_monitor():
             obstacle_flag.clear()
         time.sleep(1.0 / OBSTACLE_CHECK_HZ)
 
-# ── Dashboard ──────────────────────────────────────────────────
+#  Dashboard 
 def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -101,7 +101,7 @@ def render_dashboard(states, client_ip, frame_id, pkt_count,
     print(f" OBSTACLE : {obs_dist:.1f} cm")
     print("  Press Ctrl+C to stop.")
 
-# ── Main server loop ───────────────────────────────────────────
+#  Main server loop 
 def run():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((HOST, PORT))
@@ -134,7 +134,7 @@ def run():
             target_id_str = str(current_target_id)
             robot_id_str  = str(ROBOT_ID)
 
-            # ── Receive UDP packet 
+            #  Receive UDP packet 
             try:
                 data, addr = sock.recvfrom(BUFFER_SIZE)
             except socket.timeout:
@@ -150,7 +150,7 @@ def run():
                             nav.navigation_choice(gps_alive=False)
                 continue
 
-            # ── Parse 
+            #  Parse 
             try:
                 msg = json.loads(data.decode("utf-8"))
             except json.JSONDecodeError:
@@ -174,14 +174,14 @@ def run():
             fps       = float(len(fps_window))
             pkt_count += 1
 
-            # ── Check marker freshness 
+            #  Check marker freshness 
             robot_fresh  = (robot_id_str in states and
                             now - states[robot_id_str].last_seen < GPS_TIMEOUT)
             target_fresh = (target_id_str in states and
                             now - states[target_id_str].last_seen < GPS_TIMEOUT)
 
             with nav_lock:
-                # ── Create or update Navigation 
+                #  Create or update Navigation 
                 if robot_fresh and target_fresh:
                     robot_s  = states[robot_id_str]
                     target_s = states[target_id_str]
@@ -205,7 +205,7 @@ def run():
                         nav.target.y = target_s.y
                         nav.target.z = target_s.z
 
-                # ── Navigate or avoid 
+                #  Navigate or avoid 
                 nav_mode = "Waiting"
                 if nav is not None and not nav.finished:
                     if obstacle_flag.is_set() and not is_avoiding:
@@ -220,7 +220,7 @@ def run():
                         nav.navigation_choice(gps_alive=gps_alive)
                         nav_mode = "GPS" if gps_alive else "Odometry"
 
-                # ── Waypoint reached — pause & advance 
+                #  Waypoint reached — pause & advance 
                 elif nav is not None and nav.finished:
                     nav.driver.stop()
                     log.info("[NAV] Reached target ID %d (%d/%d) — pausing %.1fs",
@@ -273,7 +273,7 @@ def run():
                         nav.driver.reset_odometry()
                         nav_mode = f"Heading to ID {next_target_id}"
 
-            # ── Dashboard 
+            #  Dashboard 
             distance = nav.distance()         if nav else None
             angle    = nav.compute_steering() if nav else None
             # render_dashboard(
