@@ -10,7 +10,7 @@ import socket
 import time
 
 from config import Config
-from aruco_gps import ArucoGPS
+from aruco_gps import ArucoGPS, MarkerPosition
 
 # ── Logging ────────────────────────────────────────────────────
 logging.basicConfig(
@@ -20,10 +20,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("gps_client")
 
-def build_payload(frame_id: int, positions: dict) -> bytes:
+def build_payload(frame_id: int, positions: dict[int, "MarkerPosition"]) -> bytes:
     data = {
         "timestamp": round(time.time(), 4),
-        "frame":     frame_id,
+        "frame": frame_id,
         "markers": {
             str(mid): {"x": p.x, "y": p.y, "z": p.z}
             for mid, p in positions.items()
@@ -34,11 +34,12 @@ def build_payload(frame_id: int, positions: dict) -> bytes:
 def run():
     cfg = Config()
     gps = ArucoGPS(
-    camera_matrix = cfg.CAMERA_MATRIX,
-    dist_coeffs   = cfg.DIST_COEFFS,
-    marker_size   = cfg.MARKER_SIZE,
-    aruco_dict_id = cfg.aruco_dict,
-    origin_id     = cfg.ORIGIN_ID,
+        camera_matrix=cfg.CAMERA_MATRIX,
+        dist_coeffs=cfg.DIST_COEFFS,
+        marker_size=cfg.MARKER_SIZE,
+        aruco_dict_id=cfg.aruco_dict,
+        origin_id=cfg.ORIGIN_ID,
+        axis_length=cfg.DRAW_AXIS_LENGTH,
     )
 
     cap = cv2.VideoCapture(cfg.camera_source)
@@ -54,8 +55,8 @@ def run():
     frame_id      = 0
 
     # ── Last known positions (used when marker lost) ──────────
-    last_known    = {}          # {marker_id: (Position, timestamp)}
-    STALE_TIMEOUT = 0.5         # seconds before discarding stale data
+    last_known = {}  # {marker_id: (MarkerPosition, timestamp)}
+    stale_timeout = cfg.STALE_TIMEOUT
 
     try:
         while True:
@@ -84,15 +85,21 @@ def run():
 
             # ── Fill missing with stale data ──────────────────
             effective = dict(tracked)
-            for mid in cfg.TRACKED_IDS:
+            for mid in cfg.tracked_ids:
                 if mid not in effective and mid in last_known:
                     pos, ts = last_known[mid]
-                    if now - ts < STALE_TIMEOUT:
+                    if now - ts < stale_timeout:
                         effective[mid] = pos
                         # Visual indicator
-                        cv2.putText(annotated, f"ID{mid} STALE",
-                                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.6, (0, 165, 255), 2)
+                        cv2.putText(
+                            annotated,
+                            f"ID{mid} STALE",
+                            (10, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (0, 165, 255),
+                            2,
+                        )
 
             # ── Send ──────────────────────────────────────────
             if effective and (now - last_send) >= send_interval:

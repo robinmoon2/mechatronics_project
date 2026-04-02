@@ -18,6 +18,9 @@ class MarkerPosition:
     rotation: np.ndarray  # 3x3
 
 
+AXIS_LENGTH = 0.05
+
+
 def _build_transform(rvec: np.ndarray, tvec: np.ndarray) -> np.ndarray:
     """Build a 4x4 homogeneous transform from rvec/tvec."""
     R, _ = cv2.Rodrigues(rvec)
@@ -31,17 +34,19 @@ class ArucoGPS:
     def __init__(
         self,
         camera_matrix: np.ndarray,
-        dist_coeffs:   np.ndarray,
-        marker_size:   float,
+        dist_coeffs: np.ndarray,
+        marker_size: float,
         aruco_dict_id: int,
-        origin_id:     int = 0,
+        origin_id: int = 0,
+        axis_length: float = AXIS_LENGTH,
     ):
         self.camera_matrix = camera_matrix
-        self.dist_coeffs   = dist_coeffs
-        self.marker_size   = marker_size
-        self.origin_id     = origin_id
+        self.dist_coeffs = dist_coeffs
+        self.marker_size = marker_size
+        self.origin_id = origin_id
+        self.axis_length = axis_length
 
-        aruco_dict   = cv2.aruco.getPredefinedDictionary(aruco_dict_id)
+        aruco_dict = cv2.aruco.getPredefinedDictionary(aruco_dict_id)
         aruco_params = cv2.aruco.DetectorParameters()
         self._detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
 
@@ -73,7 +78,12 @@ class ArucoGPS:
             )
             transforms[marker_id] = _build_transform(rvec, tvec)
             cv2.drawFrameAxes(
-                annotated, self.camera_matrix, self.dist_coeffs, rvec, tvec, 0.05
+                annotated,
+                self.camera_matrix,
+                self.dist_coeffs,
+                rvec,
+                tvec,
+                self.axis_length,
             )
 
         cv2.aruco.drawDetectedMarkers(annotated, corners, ids)
